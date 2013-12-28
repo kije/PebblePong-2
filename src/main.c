@@ -19,22 +19,27 @@ TODO:
 
 
 
-void handle_init(void) {
+static void init(void) {
+	app_log(APP_LOG_LEVEL_DEBUG, __FILE__ , __LINE__ , "Init PebblePong");
 	game_init();
 }
 
-void handle_deinit(void) {
+static void deinit(void) {
+	app_log(APP_LOG_LEVEL_DEBUG, __FILE__ , __LINE__ , "denit PebblePong");
 	game_deinit();
 }
 
 
 int main(void) {
     srand(time(NULL));
-	handle_init();
+	app_log(APP_LOG_LEVEL_DEBUG, __FILE__ , __LINE__ , "Start");
+	init();
     /*PebbleAppHandlers handlers = {
         .init_handler = &handle_init,
         .timer_handler = &handle_timeout
     };*/
     app_event_loop();
-	handle_deinit();
+	deinit();
+	app_log(APP_LOG_LEVEL_DEBUG, __FILE__ , __LINE__ , "Done");
+	return 0;
 }
