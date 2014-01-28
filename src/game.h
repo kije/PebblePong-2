@@ -10,8 +10,11 @@
 
 #define UPDATE_FREQUENCY (1000/60)
 #define UPDATE_TIMER_COOKIE 1
-
+	
 //#define ONE_DEGREE (TRIG_MAX_ANGLE/360.0F)
+
+#define FG_COLOR GColorWhite
+#define BG_COLOR GColorBlack
 
 typedef struct PrecisePoint PrecisePoint;
 typedef struct PreciseSize PreciseSize;
@@ -19,6 +22,7 @@ typedef struct PreciseRect PreciseRect;
 typedef enum Side Side;
 typedef enum Direction Direction;
 typedef struct Paddle Paddle;
+typedef enum Pl_type Pl_type;
 typedef struct Player Player;
 typedef struct MovementVector MovementVector;
 typedef struct Ball Ball;
@@ -50,11 +54,15 @@ struct Paddle {
     PreciseRect bounds;
 };
 
+enum Pl_type {
+    HUMAN, AI, REMOTE
+};
+
 struct Player {
     uint16_t score;
     Paddle paddle;
     Side side;
-    int isKI;
+    Pl_type pl_type;
     void (*control_handler)(Player *); // Function pointer, which should "controll" the player (e.g. a function that emulates the ki or a function that processes real user input)
 	float velocity;
 };
