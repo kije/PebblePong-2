@@ -1,11 +1,13 @@
 #include <pebble.h>
 #include <math.h>
+#include <comm.h>
 #include "main.h"
 #include "game.h"
 
 Window *window;
 TextLayer *titleLayer;
 TextLayer *scoreLayer;
+InverterLayer *inverter_layer;
 
 AppTimer *timer_handle;
 
@@ -77,8 +79,26 @@ void human(Player *self) {
 }
 
 // TODO: Multiplayer
-void multiplayer(Player *self) {
+	//ToDo: 
+    // 1. init_player: Init remote with link to other player data.
+    // 2. send data of local player to remote.
+    // 3. transfer control of remote collision to remote side, local is display only, by received data +keeping momentum
+    // 4. consider adding additional header file to keep struct that are common to comm and game.
 
+void multiplayer(Player *self) {
+	float rem_y;
+	float rem_vel;
+	if (got_remote(&rem_y,&rem_vel))
+	{
+		(*self).paddle.bounds.origin.y=rem_y;
+		(*self).velocity=rem_vel;
+	}
+	else {
+		(*self).paddle.bounds.origin.y += (*self).velocity; //keep last direction
+		//ToDo: prevent case of out of bounds;
+	}
+	//ToDo: Handle loss of remote player, revert to AI.
+	
 }
 
 void reset_ball(Side side) {
@@ -90,6 +110,11 @@ void reset_ball(Side side) {
     } else {
         ball.vetctor = (MovementVector){-1,1};
     }
+    send_ball(ball.position.x, ball.position.y, ball.vetctor.vx, ball.vetctor.vx, 0); 
+	//ToDo: 
+	//  1. send correct score as well
+	//  1. Change mode of active player.
+
 }
 
 
@@ -118,26 +143,20 @@ int is_colided_with_paddle(Paddle paddle) {
 
 void ball_hit_paddle(Paddle paddle) {
 	app_log(APP_LOG_LEVEL_DEBUG, __FILE__ , __LINE__ , "Ball hit Paddle");
+	//ToDo: Fix bug that ball get stuck to paddle(give it some round initial x)
+	
     ball.vetctor.vx *= -1; // reverse Ball movements
+	// ToDo: change controling side
+	// ToDo: Send correct score
+    send_ball(ball.position.x, ball.position.y, ball.vetctor.vx, ball.vetctor.vx, 0);
 }
 
 void register_ball_position() {
     ball_history[current_ball_history_position] = ball.position;
     current_ball_history_position = (current_ball_history_position+1)%COUNT_OF(ball_history);
 }
-
-
-// Thanks to flightcrank(https://github.com/flightcrank) and his Pong(https://github.com/flightcrank/pong) for the idea how to move the ball :)
-void move_ball() {
-    // Move Ball 
-    ball.position.x += ball.velocity*ball.vetctor.vx;
-    ball.position.y += ball.velocity*ball.vetctor.vy;
-
-     // if ball touches top or bottom of gameField -> revert vy
-    if (ball.position.y < validBallField.origin.y || ball.position.y > validBallField.size.h) {
-        ball.vetctor.vy = -ball.vetctor.vy; // reverse Ball movements
-    }
-
+void check_hit(Player pxx)
+{ //now old code, two section will be combined, and check for remote(multyplayer) will be added
     // hit edge? 
     if (ball.position.x < validBallField.origin.x) {
         pl2.score++;
@@ -151,24 +170,43 @@ void move_ball() {
         reset_ball(pl2.side);
     }
 
-   
-
-
-    // Ball colision check
+	// Ball colision check
     if (is_colided_with_paddle(pl1.paddle) != 0) {
         ball_hit_paddle(pl1.paddle);
     } else if (is_colided_with_paddle(pl2.paddle) != 0) {
         ball_hit_paddle(pl2.paddle);
     }
 
+}
 
+// Thanks to flightcrank(https://github.com/flightcrank) and his Pong(https://github.com/flightcrank/pong) for the idea how to move the ball :)
+void move_ball() {
+    // Move Ball 
+    ball.position.x += ball.velocity*ball.vetctor.vx;
+    ball.position.y += ball.velocity*ball.vetctor.vy;
+
+     // if ball touches top or bottom of gameField -> revert vy
+    if (ball.position.y < validBallField.origin.y || ball.position.y > validBallField.size.h) {
+        ball.vetctor.vy = -ball.vetctor.vy; // reverse Ball movements
+    }
+
+    // check hit and collision? 
+	check_hit(pl1);
+	//check_hit(pl2);
+	
+	float r_x, r_y, r_vx, r_vy;
+	uint16_t r_score;
+	if (got_ball(&r_x, &r_y, &r_vx, &r_vy, &r_score))
+	{
+		//ToDo update on reset/hit from other side, and check score
+	}
     // Store history
     register_ball_position();
 }
 
 
-void init_player(Player *player, Side side, int is_ki) {
-	app_log(APP_LOG_LEVEL_DEBUG, __FILE__ , __LINE__ , "Player init:\nSide: %s\n Is KI: %d", (side == WEST ? "West" : "EAST"), is_ki);
+void init_player(Player *player, Side side, Pl_type pl_type) {
+	app_log(APP_LOG_LEVEL_DEBUG, __FILE__ , __LINE__ , "Player init:\nSide: %s\n Is KI: %d", (side == WEST ? "West" : "EAST"), pl_type);
     GRect bounds = layer_get_bounds(gameLayer);
     Paddle paddle = (Paddle){
 		(PreciseRect) {
@@ -185,8 +223,8 @@ void init_player(Player *player, Side side, int is_ki) {
         .score = 0,
         .paddle = paddle, 
         .side = side, 
-        .isKI = is_ki, 
-        .control_handler = (is_ki != 0 ? &ai : &human),
+        .pl_type = pl_type, 
+        .control_handler = (pl_type==AI ? &ai : &human), //ToDo: modify for remote
 		.velocity = 0.6
     };
 }
@@ -221,8 +259,8 @@ void draw_ball(GContext *ctx, Ball b) {
 
 void draw_game_field(struct Layer *layer, GContext *ctx) {
     GRect bounds = layer_get_bounds(layer);
-    graphics_context_set_stroke_color (ctx, GColorWhite); 
-    graphics_context_set_fill_color (ctx, GColorWhite);   
+    graphics_context_set_stroke_color (ctx, FG_COLOR); 
+    graphics_context_set_fill_color (ctx, FG_COLOR);   
 
     // Frame
     graphics_draw_rect(ctx, bounds);
@@ -299,14 +337,15 @@ void handle_timer_timeout(void *data) {
 
 void game_init(void) {
 	app_log(APP_LOG_LEVEL_DEBUG, __FILE__ , __LINE__ , "Game Init");
-	
+	comm_init();
+
 	app_log(APP_LOG_LEVEL_DEBUG_VERBOSE, __FILE__ , __LINE__ , "Settings: \nPaddle Size (w/h): %d / %d \nBall Size (w/h): %d / %d \nUpdate Frequency: every %d ms", PADDLE_WIDTH, PADDLE_HEIGHT, BALL_SIZE_WIDTH ,BALL_SIZE_HEIGHT, UPDATE_FREQUENCY);
 	
 	window = window_create();
 	
     window_set_click_config_provider(window, (ClickConfigProvider) config_provider); // Only till the Accelometer-API is released
 
-    window_set_background_color(window, GColorBlack);
+    window_set_background_color(window, BG_COLOR);
     window_stack_push(window, true /* Animated */);
 	
 	button_up_pressed=0;
@@ -326,8 +365,8 @@ void game_init(void) {
     text_layer_set_text_alignment(titleLayer, GTextAlignmentCenter);
     text_layer_set_text(titleLayer, "PebblePong");
     text_layer_set_font(titleLayer, fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_ORBITRON_BOLD_15)));
-    text_layer_set_background_color(titleLayer, GColorBlack);
-    text_layer_set_text_color(titleLayer, GColorWhite);
+    text_layer_set_background_color(titleLayer, BG_COLOR);
+    text_layer_set_text_color(titleLayer, FG_COLOR);
     layer_add_child(window_get_root_layer(window), (Layer *)titleLayer);
 
     //Score Layer
@@ -335,15 +374,12 @@ void game_init(void) {
     text_layer_set_text_alignment(scoreLayer, GTextAlignmentCenter);
     text_layer_set_text(scoreLayer, "0 | 0");
     text_layer_set_font(scoreLayer, fonts_get_system_font (FONT_KEY_GOTHIC_14));
-    text_layer_set_background_color(scoreLayer, GColorBlack);
-    text_layer_set_text_color(scoreLayer, GColorWhite);
+    text_layer_set_background_color(scoreLayer, BG_COLOR);
+    text_layer_set_text_color(scoreLayer, FG_COLOR);
     layer_add_child(window_get_root_layer(window), (Layer *)scoreLayer);
 
 
-
-
-
-
+	
     // Game Field
 
     gameLayer = layer_create(GRect(5, 40, 134, 90));
@@ -353,10 +389,15 @@ void game_init(void) {
     validBallField = GRect(1,1,(layer_get_bounds(gameLayer).size.w-BALL_SIZE_WIDTH)-1,(layer_get_bounds(gameLayer).size.h-BALL_SIZE_HEIGHT)-1);
     validPaddleField = GRect(1,1,(layer_get_bounds(gameLayer).size.w-PADDLE_WIDTH)-2,(layer_get_bounds(gameLayer).size.h-PADDLE_HEIGHT)-2);
 
+	
+    inverter_layer = inverter_layer_create(GRect(0, 0, 144, 168));
+    layer_add_child(window_get_root_layer(window), inverter_layer_get_layer(inverter_layer));
+	layer_set_hidden(inverter_layer_get_layer(inverter_layer), !option.invert);
+	
     // Player 
 
-    init_player(&pl1, WEST, 1);
-    init_player(&pl2, EAST, 0);
+    init_player(&pl1, WEST, AI);
+    init_player(&pl2, EAST, HUMAN);
 
     // Ball 
     init_ball(&ball);
@@ -367,11 +408,12 @@ void game_init(void) {
 
 void game_deinit(void) {
 	app_log(APP_LOG_LEVEL_DEBUG, __FILE__ , __LINE__ , "Game deinit");
+	comm_deinit();
 	app_timer_cancel(timer_handle);
     text_layer_destroy(titleLayer);
     text_layer_destroy(scoreLayer);
 	layer_destroy(gameLayer);
-	
+	inverter_layer_destroy(inverter_layer);
 	window_destroy(window);
 	accel_data_service_unsubscribe();
 }
